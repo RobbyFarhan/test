@@ -2,549 +2,567 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from io import BytesIO
+import google.generativeai as genai
+import io
+import requests
 import base64
-from fpdf import FPDF
-import requests # For making HTTP requests to Gemini API
-import json # For handling JSON responses
+import plotly.io as pio
+from scipy import stats
 
-# Set Streamlit page configuration
-st.set_page_config(layout="wide", page_title="Dashboard Pemasaran Gemini")
+# --- KONFIGURASI HALAMAN & GAYA ---
+st.set_page_config(
+    page_title="Media Intelligence Dashboard",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="auto"
+)
 
-# Custom CSS for styling (similar to React app's Tailwind-like styling)
-st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif;
-            color: #333;
-        }
-        .stButton>button {
-            background-color: #4CAF50;
-            color: white;
-            border-radius: 9999px; /* Tailwind rounded-full */
-            padding: 10px 20px;
-            font-weight: bold;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* Tailwind shadow-lg */
-            transition: all 0.3s ease-in-out;
-        }
-        .stButton>button:hover {
-            background-color: #45a049;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Tailwind shadow-xl */
-        }
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-        .stMarkdown h1 {
-            color: #4338CA; /* Indigo-700 */
-            text-align: center;
-            font-size: 2.5rem; /* text-4xl */
-            font-weight: 700; /* font-bold */
-            margin-bottom: 2rem;
-            border-radius: 0.5rem; /* rounded-lg */
-            padding: 0.5rem;
-        }
-        .stMarkdown h2 {
-            color: #312E81; /* Indigo-800 or Blue-800 or Purple-800 */
-            font-size: 1.5rem; /* text-2xl */
-            font-weight: 600; /* font-semibold */
-            margin-bottom: 1rem;
-        }
-        .stMarkdown h3 {
-            color: #1F2937; /* Gray-900 */
-            font-size: 1.25rem; /* text-xl */
-            font-weight: 500; /* font-medium */
-            text-align: center;
-            margin-bottom: 0.75rem;
-        }
-        .stMarkdown h4 {
-            color: #374151; /* Gray-800 */
-            font-size: 1rem; /* text-md */
-            font-weight: 600; /* font-semibold */
-            margin-bottom: 0.5rem;
-        }
-        .stMarkdown ul {
-            list-style-type: disc;
-            margin-left: 1.25rem;
-            color: #4B5563; /* Gray-700 */
-        }
-        .stMarkdown li {
-            margin-bottom: 0.25rem;
-        }
-        .stAlert {
-            border-radius: 0.5rem;
-        }
-        .stFileUploader {
-            border-radius: 0.5rem;
-        }
-        .stSelectbox>div>div {
-            border-radius: 0.375rem;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        .stDateInput>div>div {
-            border-radius: 0.375rem;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        .container-bg-indigo-50 {
-            background-color: #EEF2FF; /* indigo-50 */
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06); /* shadow-inner */
-            margin-bottom: 2rem;
-        }
-        .container-bg-blue-50 {
-            background-color: #EFF6FF; /* blue-50 */
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
-            margin-bottom: 2rem;
-        }
-        .container-bg-purple-50 {
-            background-color: #F5F3FF; /* purple-50 */
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
-            margin-bottom: 2rem;
-        }
-        .chart-card {
-            background-color: white;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); /* shadow-md */
-            transition: box-shadow 0.3s ease-in-out;
-            margin-bottom: 1rem;
-        }
-        .chart-card:hover {
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-lg */
-        }
-        .summary-button button {
-            background-color: #8B5CF6; /* purple-600 */
-            color: white;
-            border-radius: 9999px;
-            padding: 8px 24px;
-            font-weight: bold;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            transition: all 0.3s ease-in-out;
-        }
-        .summary-button button:hover:not(:disabled) {
-            background-color: #7C3AED; /* purple-700 */
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-        .summary-button button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-    </style>
-""", unsafe_allow_html=True)
+# --- FUNGSI UTAMA & LOGIKA ---
 
-# Function to clean data
-def clean_data(df):
-    # Convert 'Date' to datetime, coerce errors to NaT
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    # Fill empty 'Engagements' with 0, convert to int
-    df['Engagements'] = pd.to_numeric(df['Engagements'], errors='coerce').fillna(0).astype(int)
-
-    # Fill missing categorical data with 'Unknown' or 'Neutral' or 'Other'
-    df['Platform'] = df['Platform'].fillna('Unknown')
-    df['Sentiment'] = df['Sentiment'].fillna('Netral')
-    # FIX: Changed 'Media Type' to 'Media_Type' to match CSV header
-    df['Media_Type'] = df['Media_Type'].fillna('Lainnya')
-    df['Location'] = df['Location'].fillna('Unknown')
-
-    return df
-
-# Static insights for each chart (translated to Indonesian)
-def get_insights(chart_name):
-    insights = []
-    if chart_name == 'sentiment':
-        insights = [
-            '1. Identifikasi sentimen dominan: Porsi sentimen positif yang besar menunjukkan konten yang sukses.',
-            '2. Analisis sentimen negatif: Porsi negatif yang signifikan menunjukkan area untuk perbaikan dalam konten atau produk.',
-            '3. Pantau sentimen netral: Persentase netral yang tinggi mungkin berarti konten tidak terlalu beresonansi, memberikan kesempatan untuk menyempurnakan pesan.',
-        ]
-    elif chart_name == 'engagement_trend':
-        insights = [
-            '1. Temukan puncak engagement: Lonjakan menunjukkan kampanye atau rilis konten yang sangat sukses.',
-            '2. Identifikasi palung engagement: Penurunan menunjukkan kelelahan konten atau kampanye yang kurang efektif selama periode tersebut.',
-            '3. Amati musiman: Pola berulang mungkin mengungkapkan tren mingguan, bulanan, atau tahunan yang dapat menginformasikan penjadwalan di masa mendatang.',
-        ]
-    elif chart_name == 'platform':
-        insights = [
-            '1. Temukan platform berkinerja terbaik: Fokuskan sumber daya di mana engagement tertinggi.',
-            '2. Identifikasi platform berkinerja rendah: Evaluasi strategi konten atau penargetan audiens untuk platform ini.',
-            '3. Temukan tren spesifik platform: Platform yang berbeda mungkin menunjukkan pola engagement yang unik, membutuhkan konten yang disesuaikan.',
-        ]
-    elif chart_name == 'media_type':
-        insights = [
-            '1. Tentukan format media yang disukai: Investasikan lebih banyak pada jenis media yang menghasilkan engagement lebih tinggi.',
-            '2. Diversifikasi strategi konten: Jika satu jenis media mendominasi, pertimbangkan untuk bereksperimen dengan yang lain untuk menjangkau audiens baru.',
-            '3. Nilai efektivitas biaya: Bandingkan engagement berbagai jenis media dengan biaya produksinya.',
-        ]
-    elif chart_name == 'locations':
-        insights = [
-            '1. Identifikasi pasar geografis utama: Fokuskan upaya pemasaran pada lokasi dengan engagement tinggi.',
-            '2. Temukan pasar yang belum dimanfaatkan: Lokasi dengan engagement lebih rendah mungkin mewakili peluang untuk kampanye yang ditargetkan.',
-            '3. Pahami preferensi regional: Lokasi yang berbeda mungkin merespons lebih baik terhadap tema atau bahasa konten tertentu.',
-        ]
-    return "\n".join([f"- {i}" for i in insights])
-
-# Function to generate campaign summary using Gemini API
-def generate_gemini_summary(api_key, filtered_data_metrics):
+def configure_gemini_api():
+    """
+    Mengkonfigurasi API Gemini menggunakan kunci API.
+    Dalam aplikasi produksi, gunakan st.secrets.
+    """
+    api_key = "AIzaSyC0VUu6xTFIwH3aP2R7tbhyu4O8m1ICxn4" # Replace with st.secrets["GEMINI_API_KEY"] in production
     if not api_key:
-        return "Kunci API Gemini tidak ada. Silakan masukkan kunci API."
-
-    API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-
-    # Extract metrics for the prompt
-    sentiment_counts = filtered_data_metrics['sentiment_counts']
-    top_sentiment = sentiment_counts.index[0] if not sentiment_counts.empty else 'Tidak Diketahui'
-
-    platform_engagements = filtered_data_metrics['platform_engagements']
-    top_platform = platform_engagements.index[0] if not platform_engagements.empty else 'Tidak Diketahui'
-
-    media_type_counts = filtered_data_metrics['media_type_counts']
-    top_media_type = media_type_counts.index[0] if not media_type_counts.empty else 'Tidak Diketahui'
-
-    location_engagements = filtered_data_metrics['location_engagements']
-    top_locations = location_engagements.head(2).index.tolist() if not location_engagements.empty else ['Tidak Diketahui']
-
-    engagement_trend = filtered_data_metrics['engagement_trend']
-    # Ensure engagement_trend is not empty before accessing idxmax()
-    max_engagement_date = engagement_trend.loc[engagement_trend['Total Engagements'].idxmax()]['Date'].strftime('%Y-%m-%d') if not engagement_trend.empty and not engagement_trend['Total Engagements'].empty else 'tanggal tidak diketahui'
-
-
-    prompt = f"""Berdasarkan data kampanye pemasaran berikut:
-- Sentimen paling dominan: {top_sentiment}
-- Platform dengan engagement tertinggi: {top_platform}
-- Tipe media yang paling banyak digunakan: {top_media_type}
-- Lokasi dengan engagement tertinggi: {', '.join(top_locations)}
-- Tanggal dengan engagement puncak: {max_engagement_date}
-
-Buat ringkasan strategi kampanye pemasaran yang komprehensif, menyoroti tindakan utama dan rekomendasi yang dapat ditindaklanjutifor meningkatkan kinerja. Fokus pada pemanfaatan kekuatan, mitigasi kelemahan, dan kapitalisasi peluang yang disorot oleh data. Ringkasan ini harus berisi sekitar 3-5 poin utama. Gunakan bahasa Indonesia.
-"""
-
-    chat_history = [{"role": "user", "parts": [{"text": prompt}]}]
-    payload = {"contents": chat_history}
-
+        st.warning("API Key Gemini tidak ditemukan. Beberapa fitur AI mungkin tidak berfungsi.")
+        return False
     try:
-        response = requests.post(API_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
-        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
-        result = response.json()
-
-        if result.get('candidates') and len(result['candidates']) > 0 and \
-           result['candidates'][0].get('content') and \
-           result['candidates'][0]['content'].get('parts') and \
-           len(result['candidates'][0]['content']['parts']) > 0:
-            return result['candidates'][0]['content']['parts'][0]['text']
-        else:
-            # More detailed error for API response issues
-            return f"Gagal menghasilkan ringkasan. Respons tidak terstruktur atau kosong: {result}"
-    except requests.exceptions.RequestException as e:
-        return f"Error memanggil API Gemini: {e}. Pastikan kunci API Anda benar dan memiliki izin."
-    except json.JSONDecodeError:
-        return "Error: Respons API Gemini bukan JSON yang valid."
+        genai.configure(api_key=api_key)
+        return True
     except Exception as e:
-        return f"Terjadi kesalahan yang tidak terduga: {e}"
+        st.error(f"Gagal mengkonfigurasi Gemini API: {e}. Pastikan API Key valid.")
+        return False
 
-# --- Streamlit App Layout ---
+def get_ai_insight(prompt, model_name='gemini-2.0-flash'):
+    """
+    Memanggil API GenAI untuk menghasilkan wawasan berdasarkan prompt dan model.
+    """
+    if not configure_gemini_api():
+        return "Gagal membuat wawasan: API tidak terkonfigurasi."
+    try:
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(prompt)
+        if response.candidates and response.candidates[0].content.parts:
+            return response.candidates[0].content.parts[0].text
+        else:
+            st.error(f"Model {model_name} tidak menghasilkan teks yang valid.")
+            return "Gagal membuat wawasan."
+    except Exception as e:
+        st.error(f"Error saat memanggil model {model_name}: {e}.")
+        return "Gagal membuat wawasan: Terjadi masalah koneksi atau API."
 
-st.title("Dashboard Pemasaran Gemini")
+def generate_html_report(campaign_summary, chart_insights, chart_figures_dict, charts_to_display_info):
+    """
+    Membuat laporan HTML dari wawasan dan grafik yang dihasilkan AI.
+    """
+    current_date = pd.Timestamp.now().strftime("%d-%m-%Y %H:%M")
 
-# File Upload Section
-st.markdown('<div class="container-bg-indigo-50">', unsafe_allow_html=True)
-st.markdown('<h2>Unggah Data CSV</h2>', unsafe_allow_html=True)
-uploaded_file = st.file_uploader("Unggah file CSV Anda di sini", type=["csv"])
-st.markdown('</div>', unsafe_allow_html=True)
+    chart_figures_html_sections = ""
+    if chart_figures_dict:
+        for chart_info in charts_to_display_info:
+            chart_key = chart_info["key"]
+            chart_title = chart_info["title"]
+            fig = chart_figures_dict.get(chart_key)
+            
+            insights_for_chart = chart_insights.get(chart_key, {})
+            insights_html = ""
+            for style, text in insights_for_chart.items():
+                if text:
+                    insights_html += f"""
+                    <h4>Wawasan AI (Gaya: {style}):</h4>
+                    <div class="insight-box">{text}</div>
+                    """
 
-df = None
-if uploaded_file is not None:
+            if fig:
+                try:
+                    fig_for_export = go.Figure(fig)
+                    # Pastikan background putih untuk ekspor
+                    fig_for_export.update_layout(paper_bgcolor='#FFFFFF', plot_bgcolor='#FFFFFF', font_color='#333333')
+                    img_bytes = pio.to_image(fig_for_export, format="png", width=900, height=550, scale=1.5)
+                    img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                    chart_figures_html_sections += f"""
+                    <div class="insight-sub-section">
+                        <h3>{chart_title}</h3>
+                        <img src="data:image/png;base64,{img_base64}" alt="{chart_title}" style="max-width: 100%; height: auto; display: block; margin: 10px auto; border: 1px solid #ddd; border-radius: 5px;">
+                        {insights_html}
+                    </div>
+                    """
+                except Exception as e:
+                    chart_figures_html_sections += f"<p>Gagal menyertakan grafik {chart_title} (Error: {e}).</p>"
+            elif insights_for_chart:
+                chart_figures_html_sections += f"""
+                <div class="insight-sub-section">
+                    <h3>{chart_title}</h3>
+                    <p>Tidak ada grafik yang tersedia.</p>
+                    {insights_html}
+                </div>
+                """
+    else:
+        chart_figures_html_sections = "<p>Belum ada wawasan atau grafik yang dibuat.</p>"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Laporan Media Intelligence Dashboard</title>
+        <meta charset="UTF-8">
+        <style>
+            body {{ font-family: 'Inter', sans-serif; line-height: 1.6; color: #333; margin: 20px; background-color: #f4f4f4; }}
+            h1, h2, h3, h4 {{ color: #2c3e50; margin-top: 1.5em; margin-bottom: 0.5em; }}
+            .section {{ background-color: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+            .insight-sub-section {{ margin-top: 1em; padding-left: 15px; border-left: 3px solid #eee; }}
+            .insight-box {{ background-color: #e9ecef; padding: 10px; border-radius: 5px; font-size: 0.9em; white-space: pre-wrap; word-wrap: break-word; }}
+        </style>
+    </head>
+    <body>
+        <h1>Laporan Media Intelligence Dashboard</h1>
+        <p>Tanggal Laporan: {current_date}</p>
+        <div class="section">
+            <h2>1. Ringkasan Strategi Kampanye</h2>
+            <div class="insight-box">{campaign_summary or "Belum ada ringkasan."}</div>
+        </div>
+        <div class="section">
+            <h2>2. Wawasan Grafik</h2>
+            {chart_figures_html_sections}
+        </div>
+    </body>
+    </html>
+    """
+    return html_content.encode('utf-8')
+
+# PERUBAHAN FONT & UI HANYA DI DALAM FUNGSI INI
+def load_css():
+    """Menyuntikkan CSS kustom dengan skema warna hijau dan putih."""
+    st.markdown("""
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&family=Inter:wght@400;500;600;700&display=swap');
+            
+            /* UI Simplicity: Main background colors */
+            body { background-color: #FFFFFF !important; } 
+            .stApp { 
+                background-color: #F8F8F8; /* Light grey background */
+                color: #333333; /* Darker text for readability */
+                font-family: 'Inter', sans-serif; 
+            }
+            
+            .main-header { 
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                text-align: center; 
+                margin-bottom: 2rem; 
+            }
+            .main-header h1 { 
+                /* MODIFIKASI: Green gradient for main title */
+                background: -webkit-linear-gradient(45deg, #4CAF50, #8BC34A); /* Green shades */
+                -webkit-background-clip: text; 
+                -webkit-text-fill-color: transparent; 
+                font-size: 2.75rem; 
+                font-weight: 800; 
+            }
+            .main-header p { 
+                color: #666666; /* Darker grey for subtitle */
+                font-size: 1.1rem; 
+            }
+            
+            /* UI Simplicity: Card styles - White background, green border/shadow */
+            .chart-container, .anomaly-card, .uploaded-file-info, .st-emotion-cache-1r6dm7m {
+                border: 1px solid #8BC34A; /* Green border */
+                background-color: #FFFFFF; /* White background */
+                border-radius: 1rem; 
+                padding: 1.5rem; 
+                margin-bottom: 2rem; 
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Lighter shadow */
+                box-sizing: border-box; 
+            }
+            .anomaly-card { 
+                border: 2px solid #4CAF50; /* More prominent green border */
+                background-color: #E8F5E9; /* Very light green background */
+            }
+            
+            /* UI Simplicity: Insight box styles */
+            .insight-box { 
+                background-color: #F1F8E9; /* Light green-yellow */
+                border: 1px solid #8BC34A; /* Green border */
+                border-radius: 0.5rem; 
+                padding: 1rem; 
+                margin-top: 1rem; 
+                min-height: 150px; 
+                white-space: pre-wrap; 
+                word-wrap: break-word; 
+                font-size: 0.9rem; 
+                color: #333333; /* Dark text for readability */
+            }
+            /* Container untuk insight lanjutan agar sejajar */
+            .insight-hub-container {
+                display: flex;
+                flex-wrap: wrap; 
+                gap: 1.5rem; 
+                margin-bottom: 2rem;
+                justify-content: center; 
+            }
+            .insight-hub-item {
+                flex: 1; 
+                min-width: 300px; 
+                max-width: 450px; 
+                border: 1px solid #8BC34A;
+                background-color: #FFFFFF;
+                border-radius: 1rem;
+                padding: 1.5rem;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+                box-sizing: border-box;
+                display: flex; 
+                flex-direction: column; 
+            }
+            .insight-hub-item h4 {
+                flex-shrink: 0; 
+                margin-bottom: 1rem; 
+            }
+            .insight-hub-item .insight-box {
+                flex-grow: 1; 
+            }
+
+            /* UI Simplicity: Heading colors within containers */
+            .chart-container h3, .insight-hub-item h3, .anomaly-card h3, .uploaded-file-info h3 { 
+                color: #4CAF50; /* Vibrant green for headings */
+                margin-top: 0; 
+                margin-bottom: 1rem; 
+                display: flex; 
+                align-items: center; 
+                gap: 0.5rem; 
+                font-weight: 600; 
+            }
+            .insight-hub-item h4 {
+                color: #4CAF50; /* Warna untuk sub-judul di insight lanjutan */
+                margin-top: 0;
+            }
+            .uploaded-file-info { color: #333333; } 
+            .uploaded-file-info p { margin-bottom: 0.5rem; }
+
+            /* Streamlit specific overrides for better UI Simplicity */
+            .stFileUploader > div {
+                border: 2px dashed #8BC34A; /* Green dashed border */
+                border-radius: 1rem;
+                padding: 2rem;
+                background-color: #FFFFFF; /* White background */
+                margin-top: 1rem;
+            }
+            .stFileUploader label { color: #4CAF50; font-size: 1.1rem; font-weight: 600; } /* Green label */
+            
+            /* Button styles */
+            .stButton > button {
+                border-radius: 0.5rem;
+                padding: 0.75rem 1rem;
+                font-weight: bold;
+                border: none; 
+                transition: opacity 0.2s ease-in-out;
+            }
+            .stButton > button:hover {
+                opacity: 0.9; 
+            }
+            /* Semua tombol primer (default) menjadi hijau */
+            .stButton > button[data-testid="stFormSubmitButton"], 
+            .stButton > button[kind="primary"] {
+                background-color: #4CAF50 !important; /* Green, menggunakan !important */
+                color: white !important; /* Putih, menggunakan !important */
+                border: none !important; /* Tanpa border, menggunakan !important */
+            }
+            /* Hover untuk tombol primer */
+            .stButton > button[data-testid="stFormSubmitButton"]:hover,
+            .stButton > button[kind="primary"]:hover {
+                background-color: #45a049 !important; /* Darker green on hover */
+            }
+
+            /* MODIFIKASI: Tombol unduh laporan menjadi hijau dengan teks putih */
+            .stButton > button[data-testid="stDownloadButton"] {
+                background-color: #4CAF50 !important; 
+                color: white !important; /* Pastikan teksnya putih */
+                border: none !important;
+            }
+            .stButton > button[data-testid="stDownloadButton"]:hover {
+                background-color: #45a049 !important; 
+            }
+
+            /* Tombol sekunder menjadi hijau dengan latar belakang putih */
+            .stButton > button[kind="secondary"] {
+                background-color: #FFFFFF !important;
+                color: #4CAF50 !important; /* Green text */
+                border: 1px solid #4CAF50 !important; /* Green border */
+            }
+            .stButton > button[kind="secondary"]:hover {
+                background-color: #F0F8F0 !important; /* Very light green on hover */
+                border: 1px solid #4CAF50 !important;
+                color: #4CAF50 !important;
+            }
+
+            /* Selectbox styles */
+            .stSelectbox > div > div > div {
+                background-color: #FFFFFF; 
+                color: #333333; 
+                border: 1px solid #8BC34A; /* Green border */
+                border-radius: 0.5rem;
+            }
+            .stSelectbox > label { color: #4CAF50; font-weight: 600; } /* Green label */
+            
+            /* Expander styles */
+            .stExpander > div > div {
+                background-color: #FFFFFF; 
+                border: 1px solid #8BC34A; /* Green border */
+                border-radius: 1rem;
+                padding: 1.5rem;
+                margin-bottom: 2rem;
+            }
+            .stExpander > div > div > div > p {
+                color: #4CAF50; /* Green for expander header */
+                font-weight: 600;
+                font-size: 1.1rem;
+            }
+            .stExpander div[data-testid="stExpanderForm"] {
+                padding-top: 0.5rem;
+            }
+            
+            /* Text input and chat input styles */
+            .st-emotion-cache-10o5h6q { 
+                background-color: #FFFFFF; 
+                border: 1px solid #8BC34A; /* Green border */
+                border-radius: 0.5rem;
+                color: #333333; 
+            }
+            .st-emotion-cache-10o5h6q input {
+                color: #333333;
+            }
+            .st-emotion-cache-10o5h6q label {
+                color: #4CAF50;
+                font-weight: 600;
+            }
+
+            /* Plotly chart font color adjustment for the white background */
+            .js-plotly-plot .plotly .modebar-container {
+                color: #333333; 
+            }
+            /* Menyesuaikan warna font pada grafik */
+            .js-plotly-plot .plotly .g-gtitle { 
+                fill: #333333 !important;
+            }
+            .js-plotly-plot .plotly .xtick text,
+            .js-plotly-plot .plotly .ytick text { 
+                fill: #333333 !important;
+            }
+            .js-plotly-plot .plotly .xaxislayer-above .axis-title text,
+            .js-plotly-plot .plotly .yaxislayer-above .axis-title text { 
+                fill: #333333 !important;
+            }
+            .js-plotly-plot .plotly .legend .bg { 
+                fill: rgba(255,255,255,0.8) !important; 
+            }
+            .js-plotly-plot .plotly .legendtext { 
+                fill: #333333 !important;
+            }
+            .js-plotly-plot .plotly .annotation-text { 
+                fill: #333333 !important;
+            }
+
+        </style>
+    """, unsafe_allow_html=True)
+
+@st.cache_data
+def parse_csv(uploaded_file):
+    """Membaca dan membersihkan file CSV."""
     try:
         df = pd.read_csv(uploaded_file)
-        df = clean_data(df.copy()) # Clean a copy of the dataframe
-        st.success("CSV berhasil dimuat dan diproses!")
+        if 'Media_Type' in df.columns:
+            df.rename(columns={'Media_Type': 'Media Type'}, inplace=True)
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df['Engagements'] = pd.to_numeric(df['Engagements'], errors='coerce')
+        df.dropna(subset=['Date', 'Engagements'], inplace=True)
+        df['Engagements'] = df['Engagements'].astype(int)
+        for col in ['Platform', 'Sentiment', 'Media Type', 'Location', 'Headline']:
+            if col not in df.columns:
+                df[col] = 'N/A'
+        df[['Platform', 'Sentiment', 'Media Type', 'Location', 'Headline']] = df[['Platform', 'Sentiment', 'Media Type', 'Location', 'Headline']].fillna('N/A')
+        return df
     except Exception as e:
-        st.error(f"Error memuat atau memproses CSV: {e}")
+        st.error(f"Gagal memproses file CSV: {e}")
+        return None
 
-# Initialize session state for API key and summary
-if 'gemini_api_key' not in st.session_state:
-    st.session_state.gemini_api_key = ''
-if 'campaign_summary' not in st.session_state:
-    st.session_state.campaign_summary = "Tekan 'Hasilkan Ringkasan' untuk mendapatkan ringkasan strategi kampanye yang didukung AI."
-if 'summary_error' not in st.session_state:
-    st.session_state.summary_error = ''
+# --- UI STREAMLIT ---
+load_css()
+api_configured = configure_gemini_api()
 
-if df is not None and not df.empty:
-    # --- Filters Section ---
-    st.markdown('<div class="container-bg-blue-50">', unsafe_allow_html=True)
-    st.markdown('<h2>Filter Data</h2>', unsafe_allow_html=True)
+st.markdown("<div class='main-header'><h1>Media Intelligence Dashboard</h1><p>Rooby Farhan Intelligence</p></div>", unsafe_allow_html=True)
 
-    # Get unique values for filters
-    all_platforms = ['Semua'] + sorted(df['Platform'].unique().tolist())
-    all_sentiments = ['Semua'] + sorted(df['Sentiment'].unique().tolist())
-    # FIX: Changed 'Media Type' to 'Media_Type' for filter options
-    all_media_types = ['Semua'] + sorted(df['Media_Type'].unique().tolist())
-    all_locations = ['Semua'] + sorted(df['Location'].unique().tolist())
+# Inisialisasi State
+for key in ['data', 'chart_insights', 'campaign_summary', 'chart_figures', 'last_uploaded_file_name', 'last_uploaded_file_size', 'show_analysis', 'last_filter_state']:
+    if key not in st.session_state:
+        st.session_state[key] = None if key not in ['chart_insights', 'chart_figures'] else {}
+        if key == 'show_analysis': st.session_state[key] = False
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        selected_platform = st.selectbox("Platform", all_platforms)
-    with col2:
-        selected_sentiment = st.selectbox("Sentimen", all_sentiments)
-    with col3:
-        selected_media_type = st.selectbox("Tipe Media", all_media_types)
+# Tampilan Unggah File
+if st.session_state.data is None: 
+    c1, c2, c3 = st.columns([1,2,1]) 
+    with c2:
+        with st.container(border=False):
+            st.markdown("### ☁️ Unggah File CSV Kamu dibawah!")
+            uploaded_file = st.file_uploader("Pastikan file memiliki kolom 'Date', 'Engagements', 'Sentiment', 'Platform', 'Media Type', 'Location', dll.", type="csv", label_visibility="collapsed")
+            if uploaded_file:
+                st.session_state.data = parse_csv(uploaded_file)
+                if st.session_state.data is not None:
+                    st.session_state.last_uploaded_file_name = uploaded_file.name
+                    st.session_state.last_uploaded_file_size = uploaded_file.size
+                    st.session_state.show_analysis = False
+                    st.rerun()
 
-    col4, col5 = st.columns(2)
-    with col4:
-        selected_location = st.selectbox("Lokasi", all_locations)
-    with col5:
-        # Date range filter
-        # Ensure min_date and max_date are valid datetime objects after cleaning
-        valid_dates = df['Date'].dropna()
-        min_date = valid_dates.min() if not valid_dates.empty else pd.to_datetime('2020-01-01')
-        max_date = valid_dates.max() if not valid_dates.empty else pd.to_datetime('2025-12-31')
-
-        # Ensure min_date and max_date are not NaT after these checks
-        if pd.isna(min_date):
-            min_date = pd.to_datetime('2020-01-01')
-        if pd.isna(max_date):
-            max_date = pd.to_datetime('2025-12-31')
-
-        try:
-            date_range = st.date_input(
-                "Rentang Tanggal",
-                value=(min_date.date(), max_date.date()), # Pass datetime.date objects
-                min_value=min_date.date(),
-                max_value=max_date.date()
-            )
-            if len(date_range) == 2:
-                start_date, end_date = date_range
-                # Ensure end_date includes the entire day
-                start_date = pd.to_datetime(start_date)
-                end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            else:
-                start_date = min_date
-                end_date = max_date
-        except Exception as e:
-            st.warning(f"Tidak dapat memparse rentang tanggal, menampilkan semua tanggal: {e}")
-            start_date = min_date
-            end_date = max_date
-
-
-    # Apply filters
-    filtered_df = df.copy()
-    if selected_platform != 'Semua':
-        filtered_df = filtered_df[filtered_df['Platform'] == selected_platform]
-    if selected_sentiment != 'Semua':
-        filtered_df = filtered_df[filtered_df['Sentiment'] == selected_sentiment]
-    # FIX: Changed 'Media Type' to 'Media_Type' when applying filter
-    if selected_media_type != 'Semua':
-        filtered_df = filtered_df[filtered_df['Media_Type'] == selected_media_type]
-    if selected_location != 'Semua':
-        filtered_df = filtered_df[filtered_df['Location'] == selected_location]
-
-    # Date filtering
-    # Ensure 'Date' column is not null for filtering, as NaT values will cause issues
-    filtered_df = filtered_df[filtered_df['Date'].notna()]
-    filtered_df = filtered_df[(filtered_df['Date'] >= start_date) & (filtered_df['Date'] <= end_date)]
-
-    st.markdown('</div>', unsafe_allow_html=True) # Close filters div
-
-    # --- Dashboard Content ---
-    st.markdown('<div class="chart-section">', unsafe_allow_html=True) # Wrapper for charts
-
-    st.markdown('<h2>Ikhtisar Dashboard</h2>', unsafe_allow_html=True)
-
-    if filtered_df.empty:
-        st.warning("Tidak ada data yang cocok dengan kriteria filter saat ini. Coba sesuaikan filter Anda.")
-        # Clear summary if no data
-        st.session_state.campaign_summary = "Tidak ada data yang difilter untuk menghasilkan ringkasan."
-        st.session_state.summary_error = ''
-    else:
-        # Create a list to store Plotly figures for PDF export
-        figs_for_pdf = []
-        metrics_for_gemini = {}
-
-        # 1. Sentiment Breakdown (Pie Chart)
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<h3>Analisis Sentimen</h3>', unsafe_allow_html=True)
-        sentiment_counts = filtered_df['Sentiment'].value_counts().reset_index()
-        sentiment_counts.columns = ['Sentiment', 'Count']
-        fig_sentiment = px.pie(sentiment_counts, values='Count', names='Sentiment',
-                                 title='Analisis Sentimen', hole=0.4,
-                                 color_discrete_map={'Positive':'#4CAF50', 'Netral':'#FFC107', 'Negative':'#F44336'})
-        fig_sentiment.update_traces(textinfo='percent+label', pull=[0.05 if s == 'Positive' else 0 for s in sentiment_counts['Sentiment']])
-        fig_sentiment.update_layout(height=350, margin=dict(t=50, b=20, l=20, r=20), showlegend=True)
-        st.plotly_chart(fig_sentiment, use_container_width=True)
-        st.markdown('<h4>Wawasan Utama:</h4>')
-        st.markdown(get_insights('sentiment'), unsafe_allow_html=True)
-        figs_for_pdf.append(fig_sentiment)
-        metrics_for_gemini['sentiment_counts'] = sentiment_counts.set_index('Sentiment')['Count']
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-        # 2. Engagement Trend over Time (Line Chart)
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<h3>Tren Engagement Seiring Waktu</h3>', unsafe_allow_html=True)
-        engagement_trend = filtered_df.groupby(filtered_df['Date'].dt.date)['Engagements'].sum().reset_index()
-        engagement_trend.columns = ['Date', 'Total Engagements']
-        fig_engagement_trend = px.line(engagement_trend, x='Date', y='Total Engagements',
-                                         title='Tren Engagement Seiring Waktu')
-        fig_engagement_trend.update_traces(mode='lines+markers', line=dict(color='#2196F3', width=2), marker=dict(size=6))
-        fig_engagement_trend.update_layout(height=350, margin=dict(t=50, b=80, l=60, r=20))
-        st.plotly_chart(fig_engagement_trend, use_container_width=True)
-        st.markdown('<h4>Wawasan Utama:</h4>')
-        st.markdown(get_insights('engagement_trend'), unsafe_allow_html=True)
-        figs_for_pdf.append(fig_engagement_trend)
-        metrics_for_gemini['engagement_trend'] = engagement_trend
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-        # 3. Platform Engagements (Bar Chart)
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<h3>Engagement Berdasarkan Platform</h3>', unsafe_allow_html=True)
-        platform_engagements = filtered_df.groupby('Platform')['Engagements'].sum().reset_index()
-        platform_engagements = platform_engagements.sort_values(by='Engagements', ascending=False)
-        fig_platform = px.bar(platform_engagements, x='Platform', y='Engagements',
-                                 title='Engagement Berdasarkan Platform', color_discrete_sequence=['#FF9800'])
-        fig_platform.update_layout(height=350, margin=dict(t=50, b=60, l=60, r=20))
-        st.plotly_chart(fig_platform, use_container_width=True)
-        st.markdown('<h4>Wawasan Utama:</h4>')
-        st.markdown(get_insights('platform'), unsafe_allow_html=True)
-        figs_for_pdf.append(fig_platform)
-        metrics_for_gemini['platform_engagements'] = platform_engagements.set_index('Platform')['Engagements']
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-        # 4. Media Type Mix (Pie Chart)
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<h3>Distribusi Tipe Media</h3>', unsafe_allow_html=True)
-        # FIX: Changed 'Media Type' to 'Media_Type' for value_counts
-        media_type_counts = filtered_df['Media_Type'].value_counts().reset_index()
-        media_type_counts.columns = ['Media Type', 'Count'] # Column name for display in chart remains 'Media Type'
-        fig_media_type = px.pie(media_type_counts, values='Count', names='Media Type',
-                                 title='Distribusi Tipe Media', hole=0.4,
-                                 color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig_media_type.update_traces(textinfo='percent+label')
-        fig_media_type.update_layout(height=350, margin=dict(t=50, b=20, l=20, r=20), showlegend=True)
-        st.plotly_chart(fig_media_type, use_container_width=True)
-        st.markdown('<h4>Wawasan Utama:</h4>')
-        st.markdown(get_insights('media_type'), unsafe_allow_html=True)
-        figs_for_pdf.append(fig_media_type)
-        # Use 'Media Type' for index in metrics_for_gemini to match prompt expectations
-        metrics_for_gemini['media_type_counts'] = media_type_counts.set_index('Media Type')['Count']
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-        # 5. Top 5 Locations (Bar Chart)
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<h3>Top 5 Lokasi Berdasarkan Engagement</h3>', unsafe_allow_html=True)
-        location_engagements = filtered_df.groupby('Location')['Engagements'].sum().reset_index()
-        top_5_locations = location_engagements.sort_values(by='Engagements', ascending=False).head(5)
-        fig_locations = px.bar(top_5_locations, x='Location', y='Engagements',
-                                 title='Top 5 Lokasi Berdasarkan Engagement', color_discrete_sequence=['#673AB7'])
-        fig_locations.update_layout(height=350, margin=dict(t=50, b=60, l=60, r=20))
-        st.plotly_chart(fig_locations, use_container_width=True)
-        st.markdown('<h4>Wawasan Utama:</h4>')
-        st.markdown(get_insights('locations'), unsafe_allow_html=True)
-        figs_for_pdf.append(fig_locations)
-        metrics_for_gemini['location_engagements'] = location_engagements.set_index('Location')['Engagements'].sort_values(ascending=False)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True) # Close charts section wrapper
-
-    # --- Campaign Strategy Summary - Now dynamic with Gemini API ---
-    st.markdown('<div class="container-bg-purple-50">', unsafe_allow_html=True)
-    st.markdown('<h2>Ringkasan Strategi Kampanye (Didukung AI)</h2>', unsafe_allow_html=True)
+# Tampilan Dasbor Utama
+if st.session_state.data is not None:
+    df = st.session_state.data
     
-    # Access Gemini API key from secrets
-    st.session_state.gemini_api_key = st.text_input(
-        "Kunci API Gemini",
-        type="password",
-        value=st.secrets.get("gemini_api_key", st.session_state.gemini_api_key), # Get from secrets, or keep existing value if not in secrets
-        placeholder="Masukkan kunci API Gemini Anda di sini"
-    )
+    # Tampilkan tombol "Lanjut" di halaman utama jika analisis belum ditampilkan
+    if not st.session_state.show_analysis:
+        st.markdown("---")
+        c_btn1, c_btn2, c_btn3 = st.columns([1,2,1])
+        with c_btn2:
+            if st.button(" Lanjut", key="show_analysis_btn", use_container_width=True, type="primary"):
+                st.session_state.show_analysis = True
+                st.rerun()
+    
+    # Tampilkan sidebar hanya jika analisis telah dimulai
+    if st.session_state.show_analysis:
+        with st.sidebar:
+            st.markdown(f"""<div class="uploaded-file-info"><h3>📂 File Kamu Berhasil Teruploadf! ✅️</h3><p><strong>Nama File:</strong> {st.session_state.last_uploaded_file_name}</p></div>""", unsafe_allow_html=True)
+            if st.button("Hapus File Kamu", key="clear_file_btn", use_container_width=True, type="secondary"):
+                for key in list(st.session_state.keys()): del st.session_state[key]
+                st.experimental_set_query_params() 
+                st.rerun()
 
-    if st.button("Hasilkan Ringkasan", key="generate_summary_button"):
-        if not st.session_state.gemini_api_key:
-            st.session_state.summary_error = 'Kunci API Gemini tidak ada. Silakan masukkan kunci API.'
-            st.session_state.campaign_summary = "Ringkasan gagal dihasilkan karena kunci API tidak ada."
-        elif filtered_df.empty:
-            st.session_state.summary_error = 'Tidak ada data yang difilter untuk menghasilkan ringkasan.'
-            st.session_state.campaign_summary = "Ringkasan gagal dihasilkan karena tidak ada data yang difilter."
-        else:
-            with st.spinner('Menghasilkan ringkasan strategi kampanye...'):
-                st.session_state.summary_error = ''
-                summary = generate_gemini_summary(st.session_state.gemini_api_key, metrics_for_gemini)
-                st.session_state.campaign_summary = summary
-                if "Error" in summary or "Gagal" in summary:
-                    st.session_state.summary_error = summary
+            st.markdown("---")
+            with st.expander("⚙️ Filter Data", expanded=True):
+                def get_multiselect(label, options):
+                    all_option = f"Pilih Semua {label}"
+                    selection = st.multiselect(label, [all_option] + options)
+                    if all_option in selection: return options
+                    return selection
 
-    if st.session_state.summary_error:
-        st.error(st.session_state.summary_error)
+                min_date, max_date = df['Date'].min().date(), df['Date'].max().date()
+                
+                platform = get_multiselect("Platform", sorted(df['Platform'].unique()))
+                media_type = get_multiselect("Media Type", sorted(df['Media Type'].unique()))
+                sentiment = get_multiselect("Sentiment", sorted(df['Sentiment'].unique()))
+                location = get_multiselect("Location", sorted(df['Location'].unique()))
+                date_range = st.date_input("Rentang Tanggal", (min_date, max_date), min_date, max_date, format="DD/MM/YYYY")
+                start_date, end_date = date_range if len(date_range) == 2 else (min_date, max_date)
+            
+        # Filter dan proses data
+        query = "(Date >= @start_date) & (Date <= @end_date)"
+        params = {'start_date': pd.to_datetime(start_date), 'end_date': pd.to_datetime(end_date)}
+        if platform: query += " & Platform in @platform"; params['platform'] = platform
+        if sentiment: query += " & Sentiment in @sentiment"; params['sentiment'] = sentiment
+        if media_type: query += " & `Media Type` in @media_type"; params['media_type'] = media_type
+        if location: query += " & Location in @location"; params['location'] = location
+        filtered_df = df.query(query, local_dict=params)
 
-    st.markdown(f'<p class="text-gray-700 leading-relaxed mt-4 whitespace-pre-wrap">{st.session_state.campaign_summary}</p>', unsafe_allow_html=True)
-    st.markdown("""
-    <p class="text-sm text-gray-500 italic mt-4">
-        Ringkasan ini dihasilkan secara dinamis menggunakan API Gemini.
-    </p>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("---") # Garis pemisah visual
+        
+        # Tampilan Grafik & AI
+        charts_to_display = [
+            {"key": "sentiment", "title": "Analisis Sentimen"},
+            {"key": "trend", "title": "Tren Keterlibatan"},
+            {"key": "platform", "title": "Keterlibatan per Platform"},
+            {"key": "mediaType", "title": "Distribusi Jenis Media"},
+            {"key": "location", "title": "5 Lokasi Teratas"}
+        ]
+        
+        chart_cols = st.columns(2) 
+        
+        def get_chart_prompt(key, data_json, answer_style):
+            prompts = {"sentiment": "distribusi sentimen", "trend": "tren keterlibatan", "platform": "keterlibatan per platform", "mediaType": "distribusi jenis media", "location": "keterlibatan per lokasi"}
+            
+            personas = {
+                "gemini-2.0-flash": "Anda adalah seorang analis media yang sangat kritis dan skeptis. Fokus pada potensi risiko, kelemahan data, dan anomali yang tidak terduga. Berikan 3 poin observasi tajam.",
+                "Mistral 7B Instruct": "Anda adalah seorang ahli strategi branding yang kreatif dan visioner. Lihat data ini sebagai kanvas. Berikan 3 ide kampanye atau konten yang inovatif dan out-of-the-box berdasarkan tren yang ada.",
+                "llama-3.3-8b-instruct": "Anda adalah seorang pakar data yang sangat kuantitatif dan to-the-point. Berikan 3 kesimpulan actionable yang didukung langsung oleh angka-angka dalam data. Sebutkan angka spesifik jika memungkinkan."
+            }
+            
+            persona = personas.get(answer_style, "Anda adalah asisten AI. Berikan 3 wawasan dari data berikut.")
+            
+            return f"{persona} Analisis data mengenai {prompts.get(key, 'data')}: {data_json}. Sajikan wawasan dalam format daftar bernomor yang jelas."
 
-    # --- Export PDF Button ---
-    @st.cache_data
-    def create_pdf(figures, summary_text):
-        pdf = FPDF(format='A4')
-        pdf.add_page()
-        pdf.set_font("Arial", size=16)
-        pdf.cell(200, 10, txt="Dashboard Pemasaran Gemini", ln=True, align='C')
-        pdf.set_font("Arial", size=10)
-        pdf.ln(10)
+        for i, chart in enumerate(charts_to_display):
+            with chart_cols[i % 2]:
+                with st.container(border=True):
+                    st.markdown(f'<h3>📊 {chart["title"]}</h3>', unsafe_allow_html=True)
+                    fig, data_for_prompt = None, None
+                    if not filtered_df.empty:
+                        try:
+                            if chart["key"] == "sentiment": data = filtered_df['Sentiment'].value_counts().reset_index(); fig = px.pie(data, names='Sentiment', values='count')
+                            elif chart["key"] == "trend": data = filtered_df.groupby(filtered_df['Date'].dt.date)['Engagements'].sum().reset_index(); fig = px.line(data, x='Date', y='Engagements')
+                            elif chart["key"] == "platform": data = filtered_df.groupby('Platform')['Engagements'].sum().nlargest(10).reset_index(); fig = px.bar(data, x='Platform', y='Engagements', color='Platform')
+                            elif chart["key"] == "mediaType": data = filtered_df['Media Type'].value_counts().reset_index(); fig = px.pie(data, names='Media Type', values='count', hole=.3)
+                            elif chart["key"] == "location": data = filtered_df.groupby('Location')['Engagements'].sum().nlargest(5).reset_index(); fig = px.bar(data, y='Location', x='Engagements', orientation='h')
+                            data_for_prompt = data.to_json(orient='records')
+                        except Exception: pass
+                    
+                    if fig:
+                        st.session_state.chart_figures[chart["key"]] = fig
+                        fig.update_layout(
+                            paper_bgcolor='#FFFFFF', # White background for charts on orange/white theme
+                            plot_bgcolor='#FFFFFF',  # White plot area
+                            font_color='#333333',   # Dark font for readability
+                            legend_title_text='',
+                            xaxis=dict(tickfont=dict(color='#333333'), title_font=dict(color='#333333'), showgrid=False),
+                            yaxis=dict(tickfont=dict(color='#333333'), title_font=dict(color='#333333'), showgrid=False),
+                            title_font=dict(color='#333333')
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else: st.warning("Tidak ada data untuk ditampilkan dengan filter ini.")
+                    
+                    answer_styles = ["gemini-2.0-flash", "Mistral 7B Instruct", "llama-3.3-8b-instruct"]
+                    selected_style = st.selectbox(
+                        "Pilih Model AI:",
+                        answer_styles,
+                        key=f"sel_{chart['key']}"
+                    )
 
-        # Add strategy summary
-        pdf.set_font("Arial", 'B', 12)
-        pdf.multi_cell(0, 5, txt="Ringkasan Strategi Kampanye (Didukung AI):", align='L')
-        pdf.set_font("Arial", '', 10)
-        pdf.ln(2)
-        pdf.multi_cell(0, 5, txt=summary_text, align='L')
-        pdf.ln(10)
+                    if st.button("Lihat Insight", key=f"btn_{chart['key']}", use_container_width=True, type="primary"):
+                        if data_for_prompt:
+                            with st.spinner(f"Menganalisis {chart['title']} dengan gaya '{selected_style}'..."):
+                                prompt = get_chart_prompt(chart['key'], data_for_prompt, selected_style)
+                                
+                                if chart['key'] not in st.session_state.chart_insights:
+                                    st.session_state.chart_insights[chart['key']] = {}
+                                
+                                st.session_state.chart_insights[chart['key']][selected_style] = get_ai_insight(prompt)
+                                st.rerun()
+                    
+                    chart_specific_insights = st.session_state.chart_insights.get(chart.get("key"), {})
+                    insight_text = chart_specific_insights.get(selected_style, "Pilih model AI untuk melihat insight.")
+                    st.markdown(f'<div class="insight-box">{insight_text}</div>', unsafe_allow_html=True)
 
-        # Add images of plots
-        for i, fig in enumerate(figures):
-            # For PDF export, convert Plotly figure to static image bytes
-            img_bytes = fig.to_image(format="png", width=800, height=400, scale=2) # Higher resolution for PDF
-            try:
-                # Add image to PDF. Adjust width to fit A4.
-                # A4 width is 210mm. If image is 800px, 800px / 3.7795 = ~211mm. Too wide.
-                # Let's scale it to fit within 190mm with margins (A4 is 210mm wide)
-                pdf.image(BytesIO(img_bytes), x=10, w=190)
-                pdf.ln(5) # Small line break after each image
-            except Exception as e:
-                st.error(f"Error menambahkan gambar ke PDF: {e}")
-                pdf.multi_cell(0, 5, txt=f"Error memuat gambar grafik: {e}", align='C')
-                pdf.ln(5)
-            # Add a new page if the next content won't fit well or after every 2 charts
-            if (i + 1) % 2 == 0 or pdf.get_y() > (pdf.h - 60): # If less than 60mm space left
-                pdf.add_page()
-
-        return pdf.output(dest='S').encode('latin1') # Return as bytes
-
-    if st.button("Ekspor Dashboard sebagai PDF"):
-        if figs_for_pdf:
-            with st.spinner("Menghasilkan PDF..."):
-                # Pass current summary text to PDF function
-                pdf_output = create_pdf(figs_for_pdf, st.session_state.campaign_summary)
-                st.download_button(
-                    label="Unduh PDF",
-                    data=pdf_output,
-                    file_name="dashboard_pemasaran_gemini.pdf",
-                    mime="application/pdf"
-                )
-                st.success("PDF berhasil dibuat!")
-        else:
-            st.warning("Tidak ada grafik untuk diekspor. Harap unggah data dan terapkan filter terlebih dahulu.")
-
-else:
-    st.info("Harap unggah file CSV untuk memulai.")
+        # Wawasan Umum & Unduh
+        st.markdown("---")
+        with st.container(border=True):
+            st.markdown("<h3> >>> Next Step!</h3>", unsafe_allow_html=True)
+            st.markdown('<div class="insight-hub-container">', unsafe_allow_html=True)
+            
+            # Ringkasan Strategi Kampanye
+            st.markdown('<div class="insight-hub-item">', unsafe_allow_html=True)
+            st.markdown("<h4>📝 Ringkasan Strategi </h4>", unsafe_allow_html=True)
+            if st.button("Buat Ringkasan", use_container_width=True, type="primary", key="btn_summary"):
+                with st.spinner("Membuat ringkasan..."):
+                    st.session_state.campaign_summary = get_ai_insight(f"Data: {filtered_df.describe().to_json()}. Buat ringkasan eksekutif dan 3 rekomendasi strategis.")
+            st.markdown(f'<div class="insight-box">{st.session_state.campaign_summary or "Klik \'Buat Ringkasan\' untuk mendapatkan rangkuman strategi kampanye berdasarkan data Anda."}</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True) # Tutup insight-hub-item
+            
+            st.markdown('</div>', unsafe_allow_html=True) # Tutup insight-hub-container
+            
+        st.markdown("---")
+        with st.container(border=True):
+            st.markdown("<h3>📄 Download Laporan Analisis</h3>", unsafe_allow_html=True)
+            if st.download_button(
+                "Unduh Laporan Lengkap (HTML)", 
+                data=generate_html_report(st.session_state.campaign_summary, st.session_state.chart_insights, st.session_state.chart_figures, charts_to_display), 
+                file_name="Laporan_Media_Intelligence.html", 
+                mime="text/html", 
+                use_container_width=True,
+                type="secondary" # Type secondary akan di-override oleh CSS kustom
+            ):
+                st.success("Laporan berhasil dibuat dan siap diunduh!")
