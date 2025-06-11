@@ -212,7 +212,9 @@ def generate_gemini_summary(api_key, filtered_data_metrics):
     top_locations = location_engagements.head(2).index.tolist() if not location_engagements.empty else ['Tidak Diketahui']
 
     engagement_trend = filtered_data_metrics['engagement_trend']
-    max_engagement_date = engagement_trend.loc[engagement_trend['Total Engagements'].idxmax()]['Date'].strftime('%Y-%m-%d') if not engagement_trend.empty else 'tanggal tidak diketahui'
+    # Ensure engagement_trend is not empty before accessing idxmax()
+    max_engagement_date = engagement_trend.loc[engagement_trend['Total Engagements'].idxmax()]['Date'].strftime('%Y-%m-%d') if not engagement_trend.empty and not engagement_trend['Total Engagements'].empty else 'tanggal tidak diketahui'
+
 
     prompt = f"""Berdasarkan data kampanye pemasaran berikut:
 - Sentimen paling dominan: {top_sentiment}
@@ -238,7 +240,8 @@ Buat ringkasan strategi kampanye pemasaran yang komprehensif, menyoroti tindakan
            len(result['candidates'][0]['content']['parts']) > 0:
             return result['candidates'][0]['content']['parts'][0]['text']
         else:
-            return "Gagal menghasilkan ringkasan. Respons tidak terstruktur atau kosong."
+            # More detailed error for API response issues
+            return f"Gagal menghasilkan ringkasan. Respons tidak terstruktur atau kosong: {result}"
     except requests.exceptions.RequestException as e:
         return f"Error memanggil API Gemini: {e}. Pastikan kunci API Anda benar dan memiliki izin."
     except json.JSONDecodeError:
@@ -298,10 +301,12 @@ if df is not None and not df.empty:
         selected_location = st.selectbox("Lokasi", all_locations)
     with col5:
         # Date range filter
-        min_date = df['Date'].min() if not df['Date'].isnull().all() else pd.to_datetime('2020-01-01')
-        max_date = df['Date'].max() if not df['Date'].isnull().all() else pd.to_datetime('2025-12-31')
+        # Ensure min_date and max_date are valid datetime objects after cleaning
+        valid_dates = df['Date'].dropna()
+        min_date = valid_dates.min() if not valid_dates.empty else pd.to_datetime('2020-01-01')
+        max_date = valid_dates.max() if not valid_dates.empty else pd.to_datetime('2025-12-31')
 
-        # Ensure min_date and max_date are not NaT
+        # Ensure min_date and max_date are not NaT after these checks
         if pd.isna(min_date):
             min_date = pd.to_datetime('2020-01-01')
         if pd.isna(max_date):
@@ -341,6 +346,8 @@ if df is not None and not df.empty:
         filtered_df = filtered_df[filtered_df['Location'] == selected_location]
 
     # Date filtering
+    # Ensure 'Date' column is not null for filtering, as NaT values will cause issues
+    filtered_df = filtered_df[filtered_df['Date'].notna()]
     filtered_df = filtered_df[(filtered_df['Date'] >= start_date) & (filtered_df['Date'] <= end_date)]
 
     st.markdown('</div>', unsafe_allow_html=True) # Close filters div
@@ -451,10 +458,12 @@ if df is not None and not df.empty:
     # --- Campaign Strategy Summary - Now dynamic with Gemini API ---
     st.markdown('<div class="container-bg-purple-50">', unsafe_allow_html=True)
     st.markdown('<h2>Ringkasan Strategi Kampanye (Didukung AI)</h2>', unsafe_allow_html=True)
+    
+    # Access Gemini API key from secrets
     st.session_state.gemini_api_key = st.text_input(
         "Kunci API Gemini",
         type="password",
-        value="AIzaSyAuIF8FP5E9FkOG7AGHZ_oEVCJNH3N25M0", # Pre-fill with the provided API key
+        value=st.secrets.get("gemini_api_key", st.session_state.gemini_api_key), # Get from secrets, or keep existing value if not in secrets
         placeholder="Masukkan kunci API Gemini Anda di sini"
     )
 
